@@ -26,7 +26,7 @@ ChatMessage -> st.chat_message
 
 ### Flow
 
-![image-20241110111856122](imgs/FlowDiagram.svg)
+![state_graph](imgs/counsellor_graph_20241120.png)
 
 
 ## Notes
