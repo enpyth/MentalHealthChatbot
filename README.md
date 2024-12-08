@@ -29,19 +29,32 @@ ChatMessage -> st.chat_message
 ![state_graph](imgs/counsellor_graph_20241120.png)
 
 
-## Notes
+# Design
 
-### Agent
-cross thread memory
+## Agent
+
+### edge
+
+- get structured output 
+
+https://python.langchain.com/docs/how_to/structured_output/
+
+### node
+
+- TODO extraction / prompt trim output
+https://python.langchain.com/docs/tutorials/extraction/
+
+- long memory
+
+https://python.langchain.com/docs/versions/migrating_memory/long_term_memory_agent/
+
+- cross thread memory TODO
 https://langchain-ai.github.io/langgraph/concepts/memory/#what-is-memory
 
-multimodal: read img/video/voice...
+- multimodal TODO: read img/video/voice...
 
 https://python.langchain.com/docs/how_to/multimodal_inputs/
 
-how to get structured_output by define prompt
-
-https://python.langchain.com/docs/how_to/structured_output/
 
 nurse agent 
 
