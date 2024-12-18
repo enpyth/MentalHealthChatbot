@@ -22,9 +22,7 @@ async def run_agents(agent_name: str, patient_input: str) -> None:
     agent: CompiledStateGraph = agents[agent_name]
     inputs = {
         "messages": [
-            HumanMessage(
-                content=f"{patient_input}"
-            ),
+            HumanMessage(content=f"{patient_input}"),
         ]
     }
     res = await agent.ainvoke(
@@ -51,23 +49,15 @@ def display_mermaid(agent_name: str, path: str):
         f.write(graph_img.data)
 
 
-def conversation():
-    agent_name = "demo_agent"
+def conversation(agent_name: str):
     while True:
         query = input("You: ")
         if query.lower() == "exit":
             break
         asyncio.run(run_agents(agent_name, query))
-        
+
 
 if __name__ == "__main__":
-    # conversation()
     TEST_NAME = "demo_agent"
-    # asyncio.run(
-        # nurse agent -> check identity (incompleted) -> end
-        # run_agents(TEST_NAME, "Hello, my name is abc and my email is abc@outlook.com.")
-        
-        # nurse agent -> check identity (completed) -> counsellor -> check_emotion (positive) -> end
-        # run_agents(TEST_NAME, "Hello, my name is abc and my email is abc@outlook.com. I am a man. I am 30 years old.")
-    # )
-    display_mermaid(TEST_NAME, "../imgs/")
+    conversation(TEST_NAME)
+    # display_mermaid(TEST_NAME, "../imgs/")
