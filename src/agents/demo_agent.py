@@ -7,7 +7,7 @@ from langchain_core.runnables import RunnableConfig, RunnableLambda
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, MessagesState, StateGraph
 from agents.models import models
-
+from langchain_community.tools import GmailSendMessage
 
 class NurseAnswer(BaseModel):
     name: str = Field(default=None, description="Patient's name")
@@ -19,14 +19,14 @@ class NurseAnswer(BaseModel):
 
     @property
     def is_valid(self):
-        result = (
-            self.name is not None and self.name.strip() != "" and
-            self.email is not None and self.email.strip() != "" and
-            self.gender is not None and
-            self.age is not None
+        return (
+            self.name is not None
+            and self.name.strip() != ""
+            and self.email is not None
+            and self.email.strip() != ""
+            and self.gender is not None
+            and self.age is not None
         )
-        print(f"Validation Results: name={self.name}, email={self.email}, gender={self.gender}, age={self.age}, is_valid={result}")
-        return result
 
 
 class EmotionAnswer(BaseModel):
@@ -35,16 +35,23 @@ class EmotionAnswer(BaseModel):
     )
 
 
+class DangerCheckAnswer(BaseModel):
+    is_dangerous: bool = Field(
+        description="Indicates whether the patient is dangerous and requires urgent attention."
+    )
+
+
 def cus_print(level: str, tag: str, content: str):
-    colors: dict = {
-        "info": "blue",
-        "success": "green",
-        "warn": "dark_orange",
-        "error": "red",
-    }
-    color: str = colors.get(level, "blue")
-    output: str = f"[{color}][bold]{tag}[/bold]: {content} [{color}]"
-    print(output)
+    if level in ["success", "error"]:  # Only log important messages
+        colors: dict = {
+            "info": "blue",
+            "success": "green",
+            "warn": "dark_orange",
+            "error": "red",
+        }
+        color: str = colors.get(level, "blue")
+        output: str = f"[{color}][bold]{tag}[/bold]: {content} [{color}]"
+        print(output)
 
 
 def create_agent_instructions(role: str, examples: str) -> str:
@@ -56,7 +63,6 @@ def create_agent_instructions(role: str, examples: str) -> str:
 async def generic_agent(
     role: str, examples: str, state: MessagesState, config: RunnableConfig
 ) -> MessagesState:
-    cus_print("info", f"{role}_agent begin", str(state.get("messages", [])))
     model = models[config["configurable"].get("model", "gpt-4o-mini")]
     instructions = create_agent_instructions(role, examples)
 
@@ -66,43 +72,69 @@ async def generic_agent(
     model_runnable = preprocessor | model
     try:
         res = await model_runnable.ainvoke(state, config)
-        cus_print("success", f"{role}_agent end", res.content)
+        cus_print("success", f"{role}_agent res", res.content)
         return {"messages": [res]}
     except Exception as e:
         cus_print("error", f"{role}_agent error", str(e))
         return {"messages": [AIMessage(content="An error occurred during processing.")]}
 
 
+def send_email_via_gmail(to_address: str, subject: str, body: str):
+    try:
+        gmail_tool = GmailSendMessage()
+        gmail_tool.run({"to": to_address, "subject": subject, "body": body})
+        cus_print("success", "Email Sent", f"Email successfully sent to {to_address}.")
+    except Exception as e:
+        cus_print("error", "Email Error", str(e))
+
+
 # Define specific agent roles and examples
 nurse_examples = """
 Your responsibility is to collect and record all basic patient information in a single question: name, age, gender, and email address.
-Example interactions:
-Patient: "Hello"
-Nurse: "Hi, I am here to collect your basic information. Could you please provide your name, age, gender, and email address?"
+Do not respond to emotional or unrelated topics. End the interaction after confirming the information is recorded.
 """
 
 counsellor_examples = """
-Your responsibility is to focus on understanding the patient’s mental health and identify potential problems. Do not collect basic information or provide professional advice.
-Example interactions:
+Your responsibility is to explore the patient’s emotional state and identify potential mental health concerns.
+Example:
 Patient: "I feel sad."
-Counsellor: "Can you tell me more about what is bothering you?"
-Patient: "I think I have anxiety."
-Counsellor: "Describe your feelings so I can guide you better and provide information to a psychologist."
+Counsellor: "Can you tell me more about why you're feeling this way? How long have you been experiencing these emotions?"
 """
 
 psychologist_examples = """
-Your responsibility is to provide professional feedback and advice for mental health problems. Do not ask about basic information or general emotional states.
-Example interactions:
-Patient: "I have been feeling very down lately."
-Psychologist: "Can you describe more about your experience?"
-Patient: "I don’t know what to do about my stress."
-Psychologist: "Let’s explore some coping strategies."
+Your responsibility is to provide professional feedback and actionable advice for mental health problems.
+Example:
+Patient: "I feel stressed at work."
+Psychologist: "It sounds like work stress is impacting you. Let's explore coping strategies like mindfulness or time management."
+"""
+
+psychiatrist_examples = """
+Your responsibility is to assist in booking a psychiatrist for the patient. Once requested, send an email to zhangsu@gmail.com with the patient's details.
 """
 
 
 # Create a shared function for agents
 async def nurse(state: MessagesState, config: RunnableConfig) -> MessagesState:
-    return await generic_agent("nurse", nurse_examples, state, config)
+    cus_print(
+        "info", "nurse_agent logic", "Checking if all required information is provided."
+    )
+    llm = models[config["configurable"].get("model", "gpt-4o-mini")]
+    structured_llm = llm.with_structured_output(NurseAnswer)
+    try:
+        res = await structured_llm.ainvoke(state["messages"])
+        if res.is_valid:
+            return {
+                "messages": [
+                    AIMessage(
+                        content="Thank you for providing all the necessary information. I have recorded your details."
+                    )
+                ]
+            }
+        else:
+            return await generic_agent("nurse", nurse_examples, state, config)
+    except Exception as e:
+        cus_print("error", "nurse_agent error", str(e))
+        return {"messages": [AIMessage(content="An error occurred during processing.")]}
 
 
 async def counsellor(state: MessagesState, config: RunnableConfig) -> MessagesState:
@@ -113,23 +145,48 @@ async def psychologist(state: MessagesState, config: RunnableConfig) -> Messages
     return await generic_agent("psychologist", psychologist_examples, state, config)
 
 
+async def psychiatrist(state: MessagesState, config: RunnableConfig) -> MessagesState:
+    try:
+        send_email_via_gmail(
+            to_address="zhangsu@gmail.com",
+            subject="Psychiatrist Booking Request",
+            body="A patient requires urgent psychiatric help. Please contact them to arrange an appointment.",
+        )
+        return {
+            "messages": [
+                AIMessage(
+                    content="I have booked a psychiatrist for you. You will be contacted shortly."
+                )
+            ]
+        }
+    except Exception as e:
+        cus_print("error", "psychiatrist_agent error", str(e))
+        return {
+            "messages": [
+                AIMessage(content="An error occurred while booking a psychiatrist.")
+            ]
+        }
+
+
 # Define the graph
 agent = StateGraph(MessagesState)
 agent.set_entry_point("nurse")
 agent.add_node("nurse", nurse)
 agent.add_node("counsellor", counsellor)
 agent.add_node("psychologist", psychologist)
+agent.add_node("psychiatrist", psychiatrist)
 
 
 async def check_identity(
     state: MessagesState, config: RunnableConfig
 ) -> Literal["completed", "incompleted"]:
-    cus_print("info", "check_identity begin", str(state.get("messages", [])))
     llm = models[config["configurable"].get("model", "gpt-4o-mini")]
     structured_llm = llm.with_structured_output(NurseAnswer)
     try:
         res = await structured_llm.ainvoke(state["messages"])
-        return "completed" if res.is_valid else "incompleted"
+        result = "completed" if res.is_valid else "incompleted"
+        cus_print("success", "check_identity result", result)
+        return result
     except Exception as e:
         cus_print("error", "check_identity error", str(e))
         return "incompleted"
@@ -138,18 +195,34 @@ async def check_identity(
 async def check_emotion(
     state: MessagesState, config: RunnableConfig
 ) -> Literal["positive", "negative"]:
-    cus_print("info", "check_emotion begin", str(state.get("messages", [])))
     llm = models[config["configurable"].get("model", "gpt-4o-mini")]
     structured_llm = llm.with_structured_output(EmotionAnswer)
     try:
         res = await structured_llm.ainvoke(state["messages"])
-        return res.emotional_tendency
+        result = res.emotional_tendency
+        cus_print("success", "check_emotion result", result)
+        return result
     except Exception as e:
         cus_print("error", "check_emotion error", str(e))
         return "negative"
 
 
-# Always END after blocking unsafe content
+async def check_danger(
+    state: MessagesState, config: RunnableConfig
+) -> Literal["dangerous", "safe"]:
+    llm = models[config["configurable"].get("model", "gpt-4o-mini")]
+    structured_llm = llm.with_structured_output(DangerCheckAnswer)
+    try:
+        res = await structured_llm.ainvoke(state["messages"])
+        result = "dangerous" if res.is_dangerous else "safe"
+        cus_print("success", "check_danger result", result)
+        return result
+    except Exception as e:
+        cus_print("error", "check_danger error", str(e))
+        return "safe"
+
+
+# Update graph with new conditional edges
 agent.add_conditional_edges(
     "nurse",
     check_identity,
@@ -160,7 +233,12 @@ agent.add_conditional_edges(
     check_emotion,
     {"positive": END, "negative": "psychologist"},
 )
-agent.add_edge("psychologist", END)
+agent.add_conditional_edges(
+    "psychologist",
+    check_danger,
+    {"dangerous": "psychiatrist", "safe": END},
+)
+agent.add_edge("psychiatrist", END)
 
 demo_agent = agent.compile(
     checkpointer=MemorySaver(),
