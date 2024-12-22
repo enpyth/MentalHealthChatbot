@@ -24,6 +24,7 @@ streamlit = "^1.41.1"
 uvicorn = "^0.34.0"
 fastapi = "^0.115.6"
 langgraph-checkpoint-sqlite = "^2.0.1"
+langchain-google-community = {extras = ["gmail"], version = "^2.0.3"}
 
 [build-system]
 requires = ["poetry-core"]

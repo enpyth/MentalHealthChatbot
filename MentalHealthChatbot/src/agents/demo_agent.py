@@ -7,7 +7,8 @@ from langchain_core.runnables import RunnableConfig, RunnableLambda
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, MessagesState, StateGraph
 from agents.models import models
-from langchain_community.tools import GmailSendMessage
+from utils.gmail import send_email_via_gmail
+
 
 class NurseAnswer(BaseModel):
     name: str = Field(default=None, description="Patient's name")
@@ -27,6 +28,9 @@ class NurseAnswer(BaseModel):
             and self.gender is not None
             and self.age is not None
         )
+
+
+patient_info = {}
 
 
 class EmotionAnswer(BaseModel):
@@ -62,7 +66,11 @@ def create_agent_instructions(role: str, examples: str) -> str:
 async def generic_agent(
     role: str, examples: str, state: MessagesState, config: RunnableConfig
 ) -> MessagesState:
-    cus_print("info", f"{role}_agent logic", "Creating agent instructions and initializing model.")
+    cus_print(
+        "info",
+        f"{role}_agent logic",
+        "Creating agent instructions and initializing model.",
+    )
     model = models[config["configurable"].get("model", "gpt-4o-mini")]
     instructions = create_agent_instructions(role, examples)
 
@@ -77,15 +85,6 @@ async def generic_agent(
     except Exception as e:
         cus_print("error", f"{role}_agent error", str(e))
         return {"messages": [AIMessage(content="An error occurred during processing.")]}
-
-
-def send_email_via_gmail(to_address: str, subject: str, body: str):
-    try:
-        gmail_tool = GmailSendMessage()
-        gmail_tool.run({"to": to_address, "subject": subject, "body": body})
-        cus_print("success", "Email Sent", f"Email successfully sent to {to_address}.")
-    except Exception as e:
-        cus_print("error", "Email Error", str(e))
 
 
 # Define specific agent roles and examples
@@ -123,6 +122,10 @@ async def nurse(state: MessagesState, config: RunnableConfig) -> MessagesState:
     try:
         res = await structured_llm.ainvoke(state["messages"])
         if res.is_valid:
+            patient_info["name"] = res.name
+            patient_info["email"] = res.email
+            patient_info["gender"] = res.gender
+            patient_info["age"] = res.age
             return {
                 "messages": [
                     AIMessage(
@@ -147,11 +150,7 @@ async def psychologist(state: MessagesState, config: RunnableConfig) -> Messages
 
 async def psychiatrist(state: MessagesState, config: RunnableConfig) -> MessagesState:
     try:
-        send_email_via_gmail(
-            to_address="zhangsu@gmail.com",
-            subject="Psychiatrist Booking Request",
-            body="A patient requires urgent psychiatric help. Please contact them to arrange an appointment.",
-        )
+        send_email_via_gmail(patient_info)
         return {
             "messages": [
                 AIMessage(
@@ -182,7 +181,9 @@ async def check_identity(
 ) -> Literal["completed", "incompleted"]:
     llm = models[config["configurable"].get("model", "gpt-4o-mini")]
     structured_llm = llm.with_structured_output(NurseAnswer)
-    cus_print("info", "check_identity logic", "Invoking structured LLM to validate identity.")
+    cus_print(
+        "info", "check_identity logic", "Invoking structured LLM to validate identity."
+    )
     try:
         res = await structured_llm.ainvoke(state["messages"])
         result = "completed" if res.is_valid else "incompleted"
@@ -198,7 +199,9 @@ async def check_emotion(
 ) -> Literal["positive", "negative"]:
     llm = models[config["configurable"].get("model", "gpt-4o-mini")]
     structured_llm = llm.with_structured_output(EmotionAnswer)
-    cus_print("info", "check_emotion logic", "Invoking structured LLM to check emotion.")
+    cus_print(
+        "info", "check_emotion logic", "Invoking structured LLM to check emotion."
+    )
     try:
         res = await structured_llm.ainvoke(state["messages"])
         result = res.emotional_tendency
