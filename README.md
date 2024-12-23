@@ -3,11 +3,11 @@ A diagnostic robot for early mental health consultation.
 
 ### Product
 
-![ProductDiagram](imgs/ProductDiagram.png)
+![ProductDiagram](MentalHealthChatbot/imgs/ProductDiagram.png)
 
 ## Architecture View
 
-![arch](imgs/Architecture.svg)
+![arch](MentalHealthChatbot/imgs/Architecture.svg)
 
 Blue: Initially completed modules
 
@@ -26,7 +26,7 @@ ChatMessage -> st.chat_message
 
 ### Flow
 
-![state_graph](imgs/counsellor_graph_20241120.png)
+![state_graph](MentalHealthChatbot/imgs/counsellor_graph_20241120.png)
 
 
 # Design

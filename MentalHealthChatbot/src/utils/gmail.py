@@ -1,41 +1,3 @@
-# from langchain_google_community import GmailToolkit
-# from langchain_google_community.gmail.utils import (
-#     build_resource_service,
-#     get_gmail_credentials,
-# )
-# from langchain_openai import ChatOpenAI
-# from langgraph.prebuilt import create_react_agent
-
-
-# # Can review scopes here https://developers.google.com/gmail/api/auth/scopes
-# # For instance, readonly scope is 'https://www.googleapis.com/auth/gmail.readonly'
-# def send_email_via_gmail():
-#     credentials = get_gmail_credentials(
-#         token_file="config/token.json",
-#         scopes=["https://mail.google.com/"],
-#         client_secrets_file="config/credentials.json",
-#     )
-#     api_resource = build_resource_service(credentials=credentials)
-#     toolkit = GmailToolkit(api_resource=api_resource)
-#     tools = toolkit.get_tools()
-#     llm = ChatOpenAI(model="gpt-4o-mini")
-#     agent_executor = create_react_agent(llm, tools)
-
-#     example_query = (
-#         "Send an email to zhangsu1305@gmail.com book a psychiatrist for the patient."
-#     )
-    
-#     events = agent_executor.stream(
-#         {"messages": [("user", example_query)]},
-#         stream_mode="values",
-#     )
-#     for event in events:
-#         event["messages"][-1].pretty_print()
-
-
-# if __name__ == "__main__":
-#     send_email_via_gmail()
-
 from langchain_google_community import GmailToolkit
 from langchain_google_community.gmail.utils import (
     build_resource_service,
@@ -47,7 +9,7 @@ from typing import Dict
 
 # Can review scopes here https://developers.google.com/gmail/api/auth/scopes
 # For instance, readonly scope is 'https://www.googleapis.com/auth/gmail.readonly'
-def send_email_via_gmail(patient_info: Dict[str, str]):
+async def send_email_via_gmail(patient_info: Dict[str, str]):
     """
     Sends an email using Gmail API to book a psychiatrist for the patient.
 
@@ -94,8 +56,8 @@ def send_email_via_gmail(patient_info: Dict[str, str]):
             {"messages": [("user", example_query)]},
             stream_mode="values",
         )
-        for event in events:
-            event["messages"][-1].pretty_print()
+        # for event in events:
+        #     event["messages"][-1].pretty_print()
         print("Email sent successfully.")
     except Exception as e:
         print(f"Failed to send email: {e}")

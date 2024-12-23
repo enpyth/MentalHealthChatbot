@@ -150,7 +150,7 @@ async def psychologist(state: MessagesState, config: RunnableConfig) -> Messages
 
 async def psychiatrist(state: MessagesState, config: RunnableConfig) -> MessagesState:
     try:
-        send_email_via_gmail(patient_info)
+        await send_email_via_gmail(patient_info)
         return {
             "messages": [
                 AIMessage(

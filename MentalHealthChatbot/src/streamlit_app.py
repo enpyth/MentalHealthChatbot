@@ -1,6 +1,10 @@
 import asyncio
 import os
 from collections.abc import AsyncGenerator
+import sqlite3
+from hashlib import sha256
+from datetime import datetime
+import uuid
 
 import streamlit as st
 from streamlit.runtime.scriptrunner import get_script_run_ctx
@@ -24,12 +28,136 @@ APP_TITLE = "Agent Service Toolkit"
 APP_ICON = "🧰"
 
 
+def init_db():
+    conn = sqlite3.connect('users.db')
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS users
+                 (email TEXT PRIMARY KEY, password TEXT, name TEXT, age INTEGER, gender TEXT)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS conversations
+                 (id TEXT PRIMARY KEY,
+                  user_email TEXT,
+                  title TEXT,
+                  created_at TIMESTAMP,
+                  last_updated TIMESTAMP,
+                  FOREIGN KEY (user_email) REFERENCES users(email))''')
+    conn.commit()
+    conn.close()
+
+def hash_password(password):
+    return sha256(password.encode()).hexdigest()
+
+def authenticate_user(email, password):
+    conn = sqlite3.connect('users.db')
+    c = conn.cursor()
+    c.execute('SELECT * FROM users WHERE email = ? AND password = ?', 
+              (email, hash_password(password)))
+    user = c.fetchone()
+    conn.close()
+    return user
+
+def create_user(email, password, name, age, gender):
+    conn = sqlite3.connect('users.db')
+    c = conn.cursor()
+    try:
+        c.execute('INSERT INTO users (email, password, name, age, gender) VALUES (?, ?, ?, ?, ?)',
+                 (email, hash_password(password), name, age, gender))
+        conn.commit()
+        success = True
+    except sqlite3.IntegrityError:
+        success = False
+    conn.close()
+    return success
+
+def create_conversation(user_email: str, thread_id: str = None, title: str = "New Conversation"):
+    conn = sqlite3.connect('users.db')
+    c = conn.cursor()
+    now = datetime.now().isoformat()
+    
+    # Generate a new UUID if thread_id is None or already exists
+    if thread_id is None:
+        thread_id = str(uuid.uuid4())
+    
+    try:
+        c.execute('''INSERT INTO conversations (id, user_email, title, created_at, last_updated)
+                     VALUES (?, ?, ?, ?, ?)''', (thread_id, user_email, title, now, now))
+        conn.commit()
+    except sqlite3.IntegrityError:
+        # If thread_id already exists, generate a new one and try again
+        thread_id = str(uuid.uuid4())
+        c.execute('''INSERT INTO conversations (id, user_email, title, created_at, last_updated)
+                     VALUES (?, ?, ?, ?, ?)''', (thread_id, user_email, title, now, now))
+        conn.commit()
+    
+    conn.close()
+    return thread_id  # Return the thread_id so we can use it
+
+def get_user_conversations(user_email: str):
+    conn = sqlite3.connect('users.db')
+    c = conn.cursor()
+    c.execute('''SELECT id, title, created_at, last_updated 
+                 FROM conversations 
+                 WHERE user_email = ?
+                 ORDER BY last_updated DESC''', (user_email,))
+    conversations = c.fetchall()
+    conn.close()
+    return conversations
+
+def update_conversation_timestamp(thread_id: str):
+    conn = sqlite3.connect('users.db')
+    c = conn.cursor()
+    now = datetime.now().isoformat()
+    c.execute('''UPDATE conversations 
+                 SET last_updated = ? 
+                 WHERE id = ?''', (now, thread_id))
+    conn.commit()
+    conn.close()
+
+
 async def main() -> None:
+    init_db()
+    
+    # Initialize session state variables
+    if 'authenticated' not in st.session_state:
+        st.session_state.authenticated = False
+    
     st.set_page_config(
         page_title=APP_TITLE,
         page_icon=APP_ICON,
         menu_items={},
     )
+
+    # Show authentication interface if not authenticated
+    if not st.session_state.authenticated:
+        tab1, tab2 = st.tabs(["Sign In", "Sign Up"])
+        
+        with tab1:
+            st.header("Sign In")
+            email = st.text_input("Email")
+            password = st.text_input("Password", type="password")
+            if st.button("Sign In"):
+                if user := authenticate_user(email, password):
+                    st.session_state.authenticated = True
+                    st.session_state.user_email = email
+                    st.rerun()
+                else:
+                    st.error("Invalid email or password")
+        
+        with tab2:
+            st.header("Sign Up")
+            new_email = st.text_input("Email", key="signup_email")
+            new_password = st.text_input("Password", type="password", key="signup_password")
+            name = st.text_input("Name")
+            age = st.number_input("Age", min_value=13, max_value=120)
+            gender = st.selectbox("Gender", ["Male", "Female", "Other"])
+            
+            if st.button("Sign Up"):
+                if create_user(new_email, new_password, name, age, gender):
+                    st.success("Account created successfully! Please sign in.")
+                else:
+                    st.error("Email already exists")
+        
+        # Stop here if not authenticated
+        st.stop()
 
     # Hide the streamlit upper-right chrome
     st.html(
@@ -54,13 +182,9 @@ async def main() -> None:
     agent_client: AgentClient = st.session_state.agent_client
 
     if "thread_id" not in st.session_state:
-        thread_id = st.query_params.get("thread_id")
-        if not thread_id:
-            thread_id = get_script_run_ctx().session_id
-            messages = []
-        else:
-            history: ChatHistory = agent_client.get_history(thread_id=thread_id)
-            messages = history.messages
+        thread_id = str(uuid.uuid4())
+        thread_id = create_conversation(st.session_state.user_email, thread_id)
+        messages = []
         st.session_state.messages = messages
         st.session_state.thread_id = thread_id
 
@@ -154,10 +278,61 @@ async def main() -> None:
             st.chat_message("ai").write(response.content)
         st.rerun()  # Clear stale containers
 
+        # Update the conversation timestamp after new messages
+        update_conversation_timestamp(st.session_state.thread_id)
+
     # If messages have been generated, show feedback widget
     if len(messages) > 0:
         with st.session_state.last_message:
             await handle_feedback()
+
+    if st.session_state.authenticated:
+        with st.sidebar:
+            col1, col2 = st.columns([4, 1])
+            with col1:
+                new_chat_title = st.text_input("New chat title", 
+                                             value="New Conversation",
+                                             key="new_chat_title",
+                                             label_visibility="collapsed")
+            with col2:
+                if st.button("➕", help="Start new chat", use_container_width=True):
+                    # Generate new thread ID using UUID
+                    thread_id = str(uuid.uuid4())
+                    # Create new conversation with custom title
+                    thread_id = create_conversation(st.session_state.user_email, 
+                                                   thread_id, 
+                                                   title=new_chat_title)
+                    # Reset session state
+                    st.session_state.thread_id = thread_id
+                    st.session_state.messages = []
+                    st.rerun()
+
+            st.divider()
+            
+            # Show existing conversations
+            st.subheader("Your Conversations")
+            conversations = get_user_conversations(st.session_state.user_email)
+            
+            if not conversations:
+                st.info("No conversations yet. Start a new chat!")
+            
+            for conv_id, title, created, updated in conversations:
+                col1, col2 = st.columns([5, 1])
+                with col1:
+                    # Format the date for display
+                    updated_date = datetime.fromisoformat(updated).strftime("%Y-%m-%d %H:%M")
+                    if st.button(f"📝 {title}\n{updated_date}", 
+                               key=f"conv_{conv_id}", 
+                               use_container_width=True):
+                        st.session_state.thread_id = conv_id
+                        try:
+                            history: ChatHistory = agent_client.get_history(thread_id=conv_id)
+                            st.session_state.messages = history.messages
+                        except Exception as e:
+                            # If history doesn't exist, initialize empty messages
+                            st.session_state.messages = []
+                            st.info("Starting a new conversation thread.")
+                        st.rerun()
 
 
 async def draw_messages(

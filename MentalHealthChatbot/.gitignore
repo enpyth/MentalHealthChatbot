@@ -163,3 +163,5 @@ cython_debug/
 
 # checkpoints
 src/checkpoints.db*
+src/users.db
+src/config/*
