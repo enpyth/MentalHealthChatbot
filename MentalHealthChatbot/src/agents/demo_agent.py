@@ -8,6 +8,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, MessagesState, StateGraph
 from agents.models import models
 from utils.gmail import send_email_via_gmail
+from utils.db import get_patient_by_user_id, insert_case
 
 
 class NurseAnswer(BaseModel):
@@ -94,7 +95,7 @@ Do not respond to emotional or unrelated topics. End the interaction after confi
 """
 
 counsellor_examples = """
-Your responsibility is to explore the patient’s emotional state and identify potential mental health concerns.
+Your responsibility is to explore the patient's emotional state and identify potential mental health concerns.
 Example:
 Patient: "I feel sad."
 Counsellor: "Can you tell me more about why you're feeling this way? How long have you been experiencing these emotions?"
@@ -117,27 +118,65 @@ async def nurse(state: MessagesState, config: RunnableConfig) -> MessagesState:
     cus_print(
         "info", "nurse_agent logic", "Checking if all required information is provided."
     )
-    llm = models[config["configurable"].get("model", "gpt-4o-mini")]
-    structured_llm = llm.with_structured_output(NurseAnswer)
-    try:
-        res = await structured_llm.ainvoke(state["messages"])
-        if res.is_valid:
-            patient_info["name"] = res.name
-            patient_info["email"] = res.email
-            patient_info["gender"] = res.gender
-            patient_info["age"] = res.age
+
+    # Try to get existing patient info from database
+    user_id = config["configurable"].get("user_id")
+    existing_patient = get_patient_by_user_id(user_id)
+
+    if existing_patient:
+        patient_info.update(existing_patient)
+        cus_print(
+            "info",
+            "nurse_agent db",
+            f"Found existing patient information for user {user_id}",
+        )
+        return {
+            "messages": [
+                AIMessage(
+                    content=f"Welcome back! I found your previous information. "
+                    f"You are {existing_patient['name']}, "
+                    f"{'male' if existing_patient['gender'] == 1 else 'female'}, "
+                    f"{existing_patient['age']} years old. "
+                )
+            ]
+        }
+    else:
+        # If no existing info found or no user_id, proceed with LLM
+        llm = models[config["configurable"].get("model", "gpt-4o-mini")]
+        structured_llm = llm.with_structured_output(NurseAnswer)
+        try:
+            res = await structured_llm.ainvoke(state["messages"])
+            if res.is_valid:
+                patient_info["name"] = res.name
+                patient_info["email"] = res.email
+                patient_info["gender"] = res.gender
+                patient_info["age"] = res.age
+
+                # Store in database if we have a user_id
+                if user_id:
+                    try:
+                        insert_case(user_id, patient_info)
+                        cus_print(
+                            "success",
+                            "nurse_agent db",
+                            f"Stored patient information for user {user_id}",
+                        )
+                    except Exception as db_error:
+                        cus_print("error", "nurse_agent db error", str(db_error))
+                return {
+                    "messages": [
+                        AIMessage(
+                            content="Thank you for providing all the necessary information. I have recorded your details."
+                        )
+                    ]
+                }
+            else:
+                return await generic_agent("nurse", nurse_examples, state, config)
+        except Exception as e:
+            cus_print("error", "nurse_agent error", str(e))
             return {
-                "messages": [
-                    AIMessage(
-                        content="Thank you for providing all the necessary information. I have recorded your details."
-                    )
-                ]
+                "messages": [AIMessage(content="An error occurred during processing.")]
             }
-        else:
-            return await generic_agent("nurse", nurse_examples, state, config)
-    except Exception as e:
-        cus_print("error", "nurse_agent error", str(e))
-        return {"messages": [AIMessage(content="An error occurred during processing.")]}
 
 
 async def counsellor(state: MessagesState, config: RunnableConfig) -> MessagesState:
@@ -176,22 +215,24 @@ agent.add_node("psychologist", psychologist)
 agent.add_node("psychiatrist", psychiatrist)
 
 
-async def check_identity(
-    state: MessagesState, config: RunnableConfig
-) -> Literal["completed", "incompleted"]:
-    llm = models[config["configurable"].get("model", "gpt-4o-mini")]
-    structured_llm = llm.with_structured_output(NurseAnswer)
-    cus_print(
-        "info", "check_identity logic", "Invoking structured LLM to validate identity."
-    )
-    try:
-        res = await structured_llm.ainvoke(state["messages"])
-        result = "completed" if res.is_valid else "incompleted"
-        cus_print("success", "check_identity result", result)
-        return result
-    except Exception as e:
-        cus_print("error", "check_identity error", str(e))
-        return "incompleted"
+async def check_identity(state: MessagesState, config: RunnableConfig) -> Literal["completed", "incompleted"]:
+    """
+    Check if patient information exists in database using user_id from config.
+    
+    Args:
+        state: Current message state
+        config: Configuration containing user_id
+        
+    Returns:
+        "completed" if patient info exists, "incompleted" otherwise
+    """
+    cus_print("info", "check_identity", "Invoking structured LLM to validate identity.")
+    user_id = config["configurable"].get("user_id")
+    if user_id:
+        existing_patient = get_patient_by_user_id(user_id)
+        if existing_patient:
+            return "completed"
+    return "incompleted"
 
 
 async def check_emotion(

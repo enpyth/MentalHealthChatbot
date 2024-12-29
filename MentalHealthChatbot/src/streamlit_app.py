@@ -12,6 +12,14 @@ from streamlit.runtime.scriptrunner import get_script_run_ctx
 from client import AgentClient
 from schema import ChatHistory, ChatMessage
 from schema.task_data import TaskData
+from utils.db import (
+    init_db,
+    authenticate_user,
+    create_user,
+    create_conversation,
+    get_user_conversations,
+    update_conversation_timestamp
+)
 
 # A Streamlit app for interacting with the langgraph agent via a simple chat interface.
 # The app has three main functions which are all run async:
@@ -28,94 +36,7 @@ APP_TITLE = "Agent Service Toolkit"
 APP_ICON = "🧰"
 
 
-def init_db():
-    conn = sqlite3.connect('users.db')
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS users
-                 (email TEXT PRIMARY KEY, password TEXT, name TEXT, age INTEGER, gender TEXT)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS conversations
-                 (id TEXT PRIMARY KEY,
-                  user_email TEXT,
-                  title TEXT,
-                  created_at TIMESTAMP,
-                  last_updated TIMESTAMP,
-                  FOREIGN KEY (user_email) REFERENCES users(email))''')
-    conn.commit()
-    conn.close()
-
-def hash_password(password):
-    return sha256(password.encode()).hexdigest()
-
-def authenticate_user(email, password):
-    conn = sqlite3.connect('users.db')
-    c = conn.cursor()
-    c.execute('SELECT * FROM users WHERE email = ? AND password = ?', 
-              (email, hash_password(password)))
-    user = c.fetchone()
-    conn.close()
-    return user
-
-def create_user(email, password, name, age, gender):
-    conn = sqlite3.connect('users.db')
-    c = conn.cursor()
-    try:
-        c.execute('INSERT INTO users (email, password, name, age, gender) VALUES (?, ?, ?, ?, ?)',
-                 (email, hash_password(password), name, age, gender))
-        conn.commit()
-        success = True
-    except sqlite3.IntegrityError:
-        success = False
-    conn.close()
-    return success
-
-def create_conversation(user_email: str, thread_id: str = None, title: str = "New Conversation"):
-    conn = sqlite3.connect('users.db')
-    c = conn.cursor()
-    now = datetime.now().isoformat()
-    
-    # Generate a new UUID if thread_id is None or already exists
-    if thread_id is None:
-        thread_id = str(uuid.uuid4())
-    
-    try:
-        c.execute('''INSERT INTO conversations (id, user_email, title, created_at, last_updated)
-                     VALUES (?, ?, ?, ?, ?)''', (thread_id, user_email, title, now, now))
-        conn.commit()
-    except sqlite3.IntegrityError:
-        # If thread_id already exists, generate a new one and try again
-        thread_id = str(uuid.uuid4())
-        c.execute('''INSERT INTO conversations (id, user_email, title, created_at, last_updated)
-                     VALUES (?, ?, ?, ?, ?)''', (thread_id, user_email, title, now, now))
-        conn.commit()
-    
-    conn.close()
-    return thread_id  # Return the thread_id so we can use it
-
-def get_user_conversations(user_email: str):
-    conn = sqlite3.connect('users.db')
-    c = conn.cursor()
-    c.execute('''SELECT id, title, created_at, last_updated 
-                 FROM conversations 
-                 WHERE user_email = ?
-                 ORDER BY last_updated DESC''', (user_email,))
-    conversations = c.fetchall()
-    conn.close()
-    return conversations
-
-def update_conversation_timestamp(thread_id: str):
-    conn = sqlite3.connect('users.db')
-    c = conn.cursor()
-    now = datetime.now().isoformat()
-    c.execute('''UPDATE conversations 
-                 SET last_updated = ? 
-                 WHERE id = ?''', (now, thread_id))
-    conn.commit()
-    conn.close()
-
-
 async def main() -> None:
-    init_db()
-    
     # Initialize session state variables
     if 'authenticated' not in st.session_state:
         st.session_state.authenticated = False
@@ -128,6 +49,8 @@ async def main() -> None:
 
     # Show authentication interface if not authenticated
     if not st.session_state.authenticated:
+        init_db()
+        print("Database initialized")
         tab1, tab2 = st.tabs(["Sign In", "Sign Up"])
         
         with tab1:
@@ -146,12 +69,9 @@ async def main() -> None:
             st.header("Sign Up")
             new_email = st.text_input("Email", key="signup_email")
             new_password = st.text_input("Password", type="password", key="signup_password")
-            name = st.text_input("Name")
-            age = st.number_input("Age", min_value=13, max_value=120)
-            gender = st.selectbox("Gender", ["Male", "Female", "Other"])
             
             if st.button("Sign Up"):
-                if create_user(new_email, new_password, name, age, gender):
+                if create_user(new_email, new_password):
                     st.success("Account created successfully! Please sign in.")
                 else:
                     st.error("Email already exists")
@@ -266,6 +186,7 @@ async def main() -> None:
                 message=user_input,
                 model=model,
                 thread_id=st.session_state.thread_id,
+                user_id=st.session_state.user_email,
             )
             await draw_messages(stream, is_new=True)
         else:
@@ -273,6 +194,7 @@ async def main() -> None:
                 message=user_input,
                 model=model,
                 thread_id=st.session_state.thread_id,
+                user_id=st.session_state.user_email,
             )
             messages.append(response)
             st.chat_message("ai").write(response.content)

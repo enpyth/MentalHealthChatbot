@@ -82,7 +82,12 @@ def _parse_input(user_input: UserInput) -> tuple[dict[str, Any], str]:
     kwargs = {
         "input": {"messages": [HumanMessage(content=user_input.message)]},
         "config": RunnableConfig(
-            configurable={"thread_id": thread_id, "model": user_input.model}, run_id=run_id
+            configurable={
+                "thread_id": thread_id, 
+                "model": user_input.model, 
+                "user_id": user_input.user_id,
+            }, 
+            run_id=run_id,
         ),
     }
     return kwargs, run_id

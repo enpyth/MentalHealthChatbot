@@ -21,6 +21,10 @@ class UserInput(BaseModel):
         default=None,
         examples=["847c6285-8fc9-4560-a83f-4e6285809254"],
     )
+    user_id: str | None = Field(
+        description="User ID to associate with the input.",
+        default=None,
+    )
 
 
 class StreamInput(UserInput):

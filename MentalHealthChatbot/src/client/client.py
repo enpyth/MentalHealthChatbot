@@ -5,7 +5,14 @@ from typing import Any
 
 import httpx
 
-from schema import ChatHistory, ChatHistoryInput, ChatMessage, Feedback, StreamInput, UserInput
+from schema import (
+    ChatHistory,
+    ChatHistoryInput,
+    ChatMessage,
+    Feedback,
+    StreamInput,
+    UserInput,
+)
 
 
 class AgentClient:
@@ -36,7 +43,11 @@ class AgentClient:
         return headers
 
     async def ainvoke(
-        self, message: str, model: str | None = None, thread_id: str | None = None
+        self,
+        message: str,
+        model: str | None = None,
+        thread_id: str | None = None,
+        user_id: str | None = None,
     ) -> ChatMessage:
         """
         Invoke the agent asynchronously. Only the final message is returned.
@@ -54,6 +65,8 @@ class AgentClient:
             request.thread_id = thread_id
         if model:
             request.model = model
+        if user_id:
+            request.user_id = user_id
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 f"{self.base_url}/{self.agent}/invoke",
@@ -66,7 +79,11 @@ class AgentClient:
             raise Exception(f"Error: {response.status_code} - {response.text}")
 
     def invoke(
-        self, message: str, model: str | None = None, thread_id: str | None = None
+        self,
+        message: str,
+        model: str | None = None,
+        thread_id: str | None = None,
+        user_id: str | None = None,
     ) -> ChatMessage:
         """
         Invoke the agent synchronously. Only the final message is returned.
@@ -84,6 +101,8 @@ class AgentClient:
             request.thread_id = thread_id
         if model:
             request.model = model
+        if user_id:
+            request.user_id = user_id
         response = httpx.post(
             f"{self.base_url}/{self.agent}/invoke",
             json=request.model_dump(),
@@ -169,6 +188,7 @@ class AgentClient:
         model: str | None = None,
         thread_id: str | None = None,
         stream_tokens: bool = True,
+        user_id: str | None = None,
     ) -> AsyncGenerator[ChatMessage | str, None]:
         """
         Stream the agent's response asynchronously.
@@ -192,6 +212,8 @@ class AgentClient:
             request.thread_id = thread_id
         if model:
             request.model = model
+        if user_id:
+            request.user_id = user_id
         async with httpx.AsyncClient() as client:
             async with client.stream(
                 "POST",
