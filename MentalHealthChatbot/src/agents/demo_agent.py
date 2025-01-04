@@ -7,7 +7,7 @@ from langchain_core.runnables import RunnableConfig, RunnableLambda
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, MessagesState, StateGraph
 from agents.models import models
-from utils.gmail import send_email_via_gmail
+from utils.gmail import send_email
 from utils.db import get_patient_by_user_id, insert_case
 
 
@@ -189,7 +189,7 @@ async def psychologist(state: MessagesState, config: RunnableConfig) -> Messages
 
 async def psychiatrist(state: MessagesState, config: RunnableConfig) -> MessagesState:
     try:
-        await send_email_via_gmail(patient_info)
+        await send_email(patient_info)
         return {
             "messages": [
                 AIMessage(

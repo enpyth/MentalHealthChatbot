@@ -1,28 +1,16 @@
-from langchain_google_community import GmailToolkit
-from langchain_google_community.gmail.utils import (
-    build_resource_service,
-    get_gmail_credentials,
-)
-from langchain_openai import ChatOpenAI
-from langgraph.prebuilt import create_react_agent
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.header import Header
 from typing import Dict
 
-# Can review scopes here https://developers.google.com/gmail/api/auth/scopes
-# For instance, readonly scope is 'https://www.googleapis.com/auth/gmail.readonly'
-async def send_email_via_gmail(patient_info: Dict[str, str]):
-    """
-    Sends an email using Gmail API to book a psychiatrist for the patient.
 
-    Args:
-        patient_info (dict): A dictionary containing patient details such as name, email, gender, and age.
-    """
-    # Validate the input data
-    if not all(key in patient_info for key in ["name", "email", "gender", "age"]):
-        raise ValueError("Patient information must include name, email, gender, and age.")
-
-    # Prepare the email content dynamically
-    email_subject = f"Psychiatrist Appointment Request for {patient_info['name']}"
-    email_body = (
+async def send_email(patient_info: Dict[str, str]):
+    sender_email = "zhangsu1305@gmail.com"
+    sender_password = "hmbz wzzr tyjp nqsh"
+    receiver_email = "zhangsu1305@gmail.com"
+    subject = f"Psychiatrist Appointment Request for {patient_info['name']}"
+    body = (
         f"Dear Psychiatrist,\n\n"
         f"We have a new patient requiring your attention. Here are their details:\n\n"
         f"Name: {patient_info['name']}\n"
@@ -33,31 +21,45 @@ async def send_email_via_gmail(patient_info: Dict[str, str]):
         f"Best regards,\nYour Team"
     )
 
-    # Set up Gmail API credentials and services
-    credentials = get_gmail_credentials(
-        token_file="config/token.json",
-        scopes=["https://mail.google.com/"],
-        client_secrets_file="config/credentials.json",
-    )
-    api_resource = build_resource_service(credentials=credentials)
-    toolkit = GmailToolkit(api_resource=api_resource)
-    tools = toolkit.get_tools()
-    llm = ChatOpenAI(model="gpt-4o-mini")
-    agent_executor = create_react_agent(llm, tools)
+    # Create email message object
+    message = MIMEMultipart()
+    message["From"] = sender_email
+    message["To"] = receiver_email
+    message["Subject"] = Header(subject, "utf-8")
 
-    # Format the query for sending the email
-    example_query = (
-        f"Send an email to zhangsu1305@gmail.com with subject '{email_subject}' and body '{email_body}'."
-    )
+    # Add email body
+    message.attach(MIMEText(body, "plain", "utf-8"))
 
-    # Execute the email sending process
     try:
-        events = agent_executor.stream(
-            {"messages": [("user", example_query)]},
-            stream_mode="values",
-        )
-        # for event in events:
-        #     event["messages"][-1].pretty_print()
-        print("Email sent successfully.")
+        # Connect to Gmail SMTP server
+        server = smtplib.SMTP("smtp.gmail.com", 587)
+        server.starttls()  # Enable TLS encryption
+
+        # Login to Gmail account
+        server.login(sender_email, sender_password)
+
+        # Send email
+        server.send_message(message)
+        print("Email sent successfully!")
+
     except Exception as e:
-        print(f"Failed to send email: {e}")
+        print(f"Error sending email: {str(e)}")
+
+    finally:
+        # Close server connection
+        server.quit()
+
+
+if __name__ == "__main__":
+    import asyncio
+
+    # Test patient information
+    test_patient = {
+        "name": "John Doe",
+        "email": "john.doe@example.com",
+        "gender": 1,  # 1 for Male, 0 for Female
+        "age": "35",
+    }
+
+    # Run the async function
+    asyncio.run(send_email(test_patient))

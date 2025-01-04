@@ -59,5 +59,5 @@ def conversation(agent_name: str):
 
 if __name__ == "__main__":
     TEST_NAME = "demo_agent"
-    conversation(TEST_NAME)
-    # display_mermaid(TEST_NAME, "../imgs/")
+    # conversation(TEST_NAME)
+    display_mermaid(TEST_NAME, "../imgs/")
