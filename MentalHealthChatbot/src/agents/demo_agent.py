@@ -9,7 +9,7 @@ from langgraph.graph import END, MessagesState, StateGraph
 from agents.models import models
 from utils.gmail import send_email
 from utils.db import get_patient_by_user_id, insert_case
-
+from utils.rag import get_brain
 
 class NurseAnswer(BaseModel):
     name: str = Field(default=None, description="Patient's name")
@@ -184,7 +184,38 @@ async def counsellor(state: MessagesState, config: RunnableConfig) -> MessagesSt
 
 
 async def psychologist(state: MessagesState, config: RunnableConfig) -> MessagesState:
-    return await generic_agent("psychologist", psychologist_examples, state, config)
+    """
+    Use RAG to provide professional psychological advice based on mental health knowledge base.
+    
+    Args:
+        state: Current message state
+        config: Configuration containing model settings
+        
+    Returns:
+        Updated message state with AI response
+    """
+    cus_print("info", "psychologist_agent", "Using RAG to provide professional advice")
+    
+    try:
+        # Get the last user message
+        last_message = state["messages"][-1].content
+        
+        # Use the brain to generate a response
+        response = await get_brain(last_message)
+        
+        return {
+            "messages": [
+                AIMessage(content=response)
+            ]
+        }
+    except Exception as e:
+        cus_print("error", "psychologist_agent error", str(e))
+        return {
+            "messages": [
+                AIMessage(content="I apologize, but I encountered an error from RAG while processing your request. "
+                                "Please try rephrasing your question.")
+            ]
+        }
 
 
 async def psychiatrist(state: MessagesState, config: RunnableConfig) -> MessagesState:
