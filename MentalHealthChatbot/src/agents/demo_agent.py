@@ -11,6 +11,7 @@ from utils.gmail import send_email
 from utils.db import get_patient_by_user_id, insert_case
 from utils.rag import get_brain
 
+
 class NurseAnswer(BaseModel):
     name: str = Field(default=None, description="Patient's name")
     email: str = Field(default=None, description="Patient's email")
@@ -130,16 +131,22 @@ async def nurse(state: MessagesState, config: RunnableConfig) -> MessagesState:
             "nurse_agent db",
             f"Found existing patient information for user {user_id}",
         )
-        return {
-            "messages": [
-                AIMessage(
-                    content=f"Welcome back! I found your previous information. "
-                    f"You are {existing_patient['name']}, "
-                    f"{'male' if existing_patient['gender'] == 1 else 'female'}, "
-                    f"{existing_patient['age']} years old. "
-                )
-            ]
-        }
+
+        # Check if this is the first message in the conversation
+        if len(state["messages"]) <= 1:  # Only the initial user message
+            return {
+                "messages": [
+                    AIMessage(
+                        content=f"Welcome back! I found your previous information. "
+                        f"You are {existing_patient['name']}, "
+                        f"{'male' if existing_patient['gender'] == 1 else 'female'}, "
+                        f"{existing_patient['age']} years old. "
+                    )
+                ]
+            }
+        else:
+            # For subsequent messages, proceed without the welcome message
+            return {"messages": []}
     else:
         # If no existing info found or no user_id, proceed with LLM
         llm = models[config["configurable"].get("model", "gpt-4o-mini")]
@@ -186,34 +193,29 @@ async def counsellor(state: MessagesState, config: RunnableConfig) -> MessagesSt
 async def psychologist(state: MessagesState, config: RunnableConfig) -> MessagesState:
     """
     Use RAG to provide professional psychological advice based on mental health knowledge base.
-    
+
     Args:
         state: Current message state
         config: Configuration containing model settings
-        
+
     Returns:
         Updated message state with AI response
     """
     cus_print("info", "psychologist_agent", "Using RAG to provide professional advice")
-    
+
     try:
         # Get the last user message
         last_message = state["messages"][-1].content
-        
+
         # Use the brain to generate a response
         response = await get_brain(last_message)
-        
-        return {
-            "messages": [
-                AIMessage(content=response)
-            ]
-        }
+
+        return {"messages": [AIMessage(content=response)]}
     except Exception as e:
         cus_print("error", "psychologist_agent error", str(e))
         return {
             "messages": [
-                AIMessage(content="I apologize, but I encountered an error from RAG while processing your request. "
-                                "Please try rephrasing your question.")
+                AIMessage(content="TODO: combine RAG with psychologist agent.")
             ]
         }
 
@@ -246,14 +248,16 @@ agent.add_node("psychologist", psychologist)
 agent.add_node("psychiatrist", psychiatrist)
 
 
-async def check_identity(state: MessagesState, config: RunnableConfig) -> Literal["completed", "incompleted"]:
+async def check_identity(
+    state: MessagesState, config: RunnableConfig
+) -> Literal["completed", "incompleted"]:
     """
     Check if patient information exists in database using user_id from config.
-    
+
     Args:
         state: Current message state
         config: Configuration containing user_id
-        
+
     Returns:
         "completed" if patient info exists, "incompleted" otherwise
     """

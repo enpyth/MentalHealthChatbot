@@ -50,7 +50,6 @@ async def main() -> None:
     # Show authentication interface if not authenticated
     if not st.session_state.authenticated:
         init_db()
-        print("Database initialized")
         tab1, tab2 = st.tabs(["Sign In", "Sign Up"])
         
         with tab1:
